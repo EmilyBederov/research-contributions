@@ -1,146 +1,116 @@
-#!/usr/bin/env python3
-"""
-BTCV Testing Data Setup Script for UNETR
-This script organizes only what you need for testing the pretrained UNETR model
-"""
+# Copyright 2020 - 2021 MONAI Consortium
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#     http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
+import argparse
 import os
-import shutil
-import zipfile
-import json
-from pathlib import Path
 
-def setup_testing_data(base_path="./dataset", num_test_cases=6):
-    """
-    Setup BTCV data for UNETR testing only
-    
-    Args:
-        base_path: Path to your dataset directory
-        num_test_cases: Number of cases to use for testing (default: 6)
-    """
-    base_path = Path(base_path)
-    base_path.mkdir(exist_ok=True)
-    
-    print("🧪 Setting up BTCV data for TESTING only...")
-    
-    # Step 1: Extract zip files
-    zip_files = list(base_path.glob("*.zip"))
-    for zip_file in zip_files:
-        print(f"📦 Extracting {zip_file}...")
-        with zipfile.ZipFile(zip_file, 'r') as zip_ref:
-            zip_ref.extractall(base_path)
-        print(f"✅ Extracted {zip_file}")
-    
-    # Step 2: Organize structure
-    rawdata_path = base_path / "RawData"
-    if rawdata_path.exists():
-        print("📁 Organizing structure for testing...")
-        
-        training_src = rawdata_path / "Training"
-        training_dst = base_path / "Training"
-        
-        if training_src.exists():
-            if training_dst.exists():
-                shutil.rmtree(training_dst)
-            shutil.move(str(training_src), str(training_dst))
-            print("✅ Moved Training folder")
-            
-        # Remove RawData folder
-        if rawdata_path.exists():
-            shutil.rmtree(rawdata_path)
-            print("🗑️ Cleaned up RawData folder")
-    
-    # Step 3: Create minimal JSON for testing (validation split only)
-    print(f"📝 Creating test dataset with {num_test_cases} cases...")
-    
-    training_img = base_path / "Training" / "img"
-    training_label = base_path / "Training" / "label"
-    
-    if not training_img.exists() or not training_label.exists():
-        print("❌ Training folders not found!")
-        return False
-    
-    img_files = sorted(list(training_img.glob("*.nii.gz")))
-    
-    # Use last few cases for validation/testing
-    validation_data = []
-    for img_file in img_files[-num_test_cases:]:
-        case_num = img_file.stem.replace("img", "").replace(".nii", "")
-        label_file = training_label / f"label{case_num}.nii.gz"
-        
-        if label_file.exists():
-            validation_data.append({
-                "image": f"./Training/img/{img_file.name}",
-                "label": f"./Training/label/{label_file.name}"
-            })
-    
-    # Create minimal JSON (only validation needed for testing)
-    dataset_json = {
-        "validation": validation_data
-    }
-    
-    json_file = base_path / "dataset_0.json"
-    with open(json_file, 'w') as f:
-        json.dump(dataset_json, f, indent=2)
-    
-    print(f"✅ Created dataset_0.json with {len(validation_data)} test cases")
-    
-    # Step 4: Verify setup
-    print("\n🔍 Verification:")
-    print(f"✅ Test cases ready: {len(validation_data)}")
-    print(f"✅ Images available: {len(img_files)}")
-    print(f"✅ JSON file created: {json_file.exists()}")
-    
-    print(f"\n📋 Testing structure:")
-    print(f"{base_path}/")
-    print("├── dataset_0.json (validation cases only)")
-    print("└── Training/")
-    print("    ├── img/ (CT scans)")
-    print("    └── label/ (ground truth)")
-    
-    return True
+import numpy as np
+import torch
+from networks.unetr import UNETR
+from trainer import dice
+from utils.data_utils import get_loader
 
-def verify_pretrained_model():
-    """Verify the pretrained model is in place"""
-    model_path = Path("./pretrained_models/UNETR_model_best_acc.pth")
-    
-    if model_path.exists():
-        print("✅ Pretrained model found")
-        return True
-    else:
-        print("❌ Pretrained model NOT found")
-        print("💡 Download it from:")
-        print("   https://developer.download.nvidia.com/assets/Clara/monai/research/UNETR_model_best_acc.pth")
-        print("   Place it in: ./pretrained_models/UNETR_model_best_acc.pth")
-        return False
+from monai.inferers import sliding_window_inference
 
-def show_test_command():
-    """Show the command to run testing"""
-    print("\n🚀 Ready to test! Run this command:")
-    print("=" * 60)
-    print("python test.py \\")
-    print("    --data_dir=./dataset/ \\")
-    print("    --json_list=dataset_0.json \\")
-    print("    --pretrained_dir=./pretrained_models/ \\")
-    print("    --pretrained_model_name=UNETR_model_best_acc.pth \\")
-    print("    --saved_checkpoint=ckpt \\")
-    print("    --infer_overlap=0.5")
-    print("=" * 60)
+parser = argparse.ArgumentParser(description="UNETR segmentation pipeline")
+parser.add_argument(
+    "--pretrained_dir", default="./pretrained_models/", type=str, help="pretrained checkpoint directory"
+)
+parser.add_argument("--data_dir", default="/dataset/dataset0/", type=str, help="dataset directory")
+parser.add_argument("--json_list", default="dataset_0.json", type=str, help="dataset json file")
+parser.add_argument(
+    "--pretrained_model_name", default="UNETR_model_best_acc.pth", type=str, help="pretrained model name"
+)
+parser.add_argument(
+    "--saved_checkpoint", default="ckpt", type=str, help="Supports torchscript or ckpt pretrained checkpoint type"
+)
+parser.add_argument("--mlp_dim", default=3072, type=int, help="mlp dimention in ViT encoder")
+parser.add_argument("--hidden_size", default=768, type=int, help="hidden size dimention in ViT encoder")
+parser.add_argument("--feature_size", default=16, type=int, help="feature size dimention")
+parser.add_argument("--infer_overlap", default=0.5, type=float, help="sliding window inference overlap")
+parser.add_argument("--in_channels", default=1, type=int, help="number of input channels")
+parser.add_argument("--out_channels", default=14, type=int, help="number of output channels")
+parser.add_argument("--num_heads", default=12, type=int, help="number of attention heads in ViT encoder")
+parser.add_argument("--res_block", action="store_true", help="use residual blocks")
+parser.add_argument("--conv_block", action="store_true", help="use conv blocks")
+parser.add_argument("--a_min", default=-175.0, type=float, help="a_min in ScaleIntensityRanged")
+parser.add_argument("--a_max", default=250.0, type=float, help="a_max in ScaleIntensityRanged")
+parser.add_argument("--b_min", default=0.0, type=float, help="b_min in ScaleIntensityRanged")
+parser.add_argument("--b_max", default=1.0, type=float, help="b_max in ScaleIntensityRanged")
+parser.add_argument("--space_x", default=1.5, type=float, help="spacing in x direction")
+parser.add_argument("--space_y", default=1.5, type=float, help="spacing in y direction")
+parser.add_argument("--space_z", default=2.0, type=float, help="spacing in z direction")
+parser.add_argument("--roi_x", default=96, type=int, help="roi size in x direction")
+parser.add_argument("--roi_y", default=96, type=int, help="roi size in y direction")
+parser.add_argument("--roi_z", default=96, type=int, help="roi size in z direction")
+parser.add_argument("--dropout_rate", default=0.0, type=float, help="dropout rate")
+parser.add_argument("--distributed", action="store_true", help="start distributed training")
+parser.add_argument("--workers", default=8, type=int, help="number of workers")
+parser.add_argument("--RandFlipd_prob", default=0.2, type=float, help="RandFlipd aug probability")
+parser.add_argument("--RandRotate90d_prob", default=0.2, type=float, help="RandRotate90d aug probability")
+parser.add_argument("--RandScaleIntensityd_prob", default=0.1, type=float, help="RandScaleIntensityd aug probability")
+parser.add_argument("--RandShiftIntensityd_prob", default=0.1, type=float, help="RandShiftIntensityd aug probability")
+parser.add_argument("--pos_embed", default="perceptron", type=str, help="type of position embedding")
+parser.add_argument("--norm_name", default="instance", type=str, help="normalization layer type in decoder")
+
+
+def main():
+    args = parser.parse_args()
+    args.test_mode = True
+    val_loader = get_loader(args)
+    pretrained_dir = args.pretrained_dir
+    model_name = args.pretrained_model_name
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    pretrained_pth = os.path.join(pretrained_dir, model_name)
+    if args.saved_checkpoint == "torchscript":
+        model = torch.jit.load(pretrained_pth)
+    elif args.saved_checkpoint == "ckpt":
+        model = UNETR(
+            in_channels=args.in_channels,
+            out_channels=args.out_channels,
+            img_size=(args.roi_x, args.roi_y, args.roi_z),
+            feature_size=args.feature_size,
+            hidden_size=args.hidden_size,
+            mlp_dim=args.mlp_dim,
+            num_heads=args.num_heads,
+            pos_embed=args.pos_embed,
+            norm_name=args.norm_name,
+            conv_block=True,
+            res_block=True,
+            dropout_rate=args.dropout_rate,
+        )
+        model_dict = torch.load(pretrained_pth)
+        model.load_state_dict(model_dict)
+    model.eval()
+    model.to(device)
+
+    with torch.no_grad():
+        dice_list_case = []
+        for i, batch in enumerate(val_loader):
+            val_inputs, val_labels = (batch["image"].cuda(), batch["label"].cuda())
+            img_name = batch["image_meta_dict"]["filename_or_obj"][0].split("/")[-1]
+            print("Inference on case {}".format(img_name))
+            val_outputs = sliding_window_inference(val_inputs, (96, 96, 96), 4, model, overlap=args.infer_overlap)
+            val_outputs = torch.softmax(val_outputs, 1).cpu().numpy()
+            val_outputs = np.argmax(val_outputs, axis=1).astype(np.uint8)
+            val_labels = val_labels.cpu().numpy()[:, 0, :, :, :]
+            dice_list_sub = []
+            for i in range(1, 14):
+                organ_Dice = dice(val_outputs[0] == i, val_labels[0] == i)
+                dice_list_sub.append(organ_Dice)
+            mean_dice = np.mean(dice_list_sub)
+            print("Mean Organ Dice: {}".format(mean_dice))
+            dice_list_case.append(mean_dice)
+        print("Overall Mean Dice: {}".format(np.mean(dice_list_case)))
+
 
 if __name__ == "__main__":
-    print("🧪 UNETR Testing Setup")
-    print("=" * 40)
-    
-    # Setup testing data
-    success = setup_testing_data("./dataset", num_test_cases=6)
-    
-    if success:
-        # Check pretrained model
-        verify_pretrained_model()
-        
-        # Show test command
-        show_test_command()
-        
-        print("\n💖 Setup complete! You're ready to test UNETR!")
-    else:
-        print("❌ Setup failed. Check your data files.")
+    main()
