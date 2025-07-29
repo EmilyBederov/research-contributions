@@ -88,7 +88,9 @@ def main():
             dropout_rate=args.dropout_rate,
         )
         model_dict = torch.load(pretrained_pth)
-        model.load_state_dict(model_dict)
+  
+        model_dict = torch.load(pretrained_pth, map_location=device)
+        model.load_state_dict(model_dict, strict=False)
     model.eval()
     model.to(device)
 
