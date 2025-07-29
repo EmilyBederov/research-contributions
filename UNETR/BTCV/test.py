@@ -87,7 +87,8 @@ def main():
             res_block=True,
             dropout_rate=args.dropout_rate,
         )
-        model_dict = torch.load(pretrained_pth)
+        #model_dict = torch.load(pretrained_pth)
+        model_dict = torch.load(pretrained_pth, map_location=torch.device('cpu'))
         model.load_state_dict(model_dict)
     model.eval()
     model.to(device)
@@ -111,6 +112,65 @@ def main():
             dice_list_case.append(mean_dice)
         print("Overall Mean Dice: {}".format(np.mean(dice_list_case)))
 
+
+    # Add this function to your test.py to handle model compatibility
+
+    def load_pretrained_model_compatible(model, pretrained_path):
+        """
+        Load pretrained model with compatibility handling
+        """
+        import torch
+        
+        # Load the state dict
+        checkpoint = torch.load(pretrained_path, map_location=torch.device('cpu'))
+        
+        # Handle different checkpoint formats
+        if 'state_dict' in checkpoint:
+            state_dict = checkpoint['state_dict']
+        else:
+            state_dict = checkpoint
+        
+        # Remove 'module.' prefix if present (from DataParallel training)
+        new_state_dict = {}
+        for k, v in state_dict.items():
+            name = k[7:] if k.startswith('module.') else k  # remove `module.`
+            new_state_dict[name] = v
+        
+        # Filter out incompatible keys
+        model_keys = set(model.state_dict().keys())
+        pretrained_keys = set(new_state_dict.keys())
+        
+        # Find compatible keys
+        compatible_keys = model_keys.intersection(pretrained_keys)
+        incompatible_keys = pretrained_keys - model_keys
+        missing_keys = model_keys - pretrained_keys
+        
+        print(f"✅ Compatible keys: {len(compatible_keys)}")
+        if incompatible_keys:
+            print(f"⚠️ Incompatible keys (ignored): {len(incompatible_keys)}")
+            for key in list(incompatible_keys)[:5]:  # Show first 5
+                print(f"   - {key}")
+            if len(incompatible_keys) > 5:
+                print(f"   ... and {len(incompatible_keys) - 5} more")
+        
+        if missing_keys:
+            print(f"⚠️ Missing keys (keeping default): {len(missing_keys)}")
+        
+        # Create filtered state dict with only compatible keys
+        filtered_state_dict = {k: v for k, v in new_state_dict.items() if k in compatible_keys}
+        
+        # Load the filtered state dict
+        model.load_state_dict(filtered_state_dict, strict=False)
+        
+        return model
+
+    # Replace the model loading section in your test.py main() function:
+    # Instead of:
+    #   model_dict = torch.load(pretrained_pth, map_location=torch.device('cpu'))
+    #   model.load_state_dict(model_dict)
+    # 
+    # Use:
+    #   model = load_pretrained_model_compatible(model, pretrained_pth)
 
 if __name__ == "__main__":
     main()

@@ -133,3 +133,146 @@ tests/testing_data/*Hippocampus*
 
 # Temporary workspace
 tmp_*_dir/
+
+# UNETR Project .gitignore
+
+# Dataset files (LARGE - DO NOT COMMIT)
+dataset/
+data/
+RawData/
+*.nii.gz
+*.nii
+dataset_*.json
+**/Training/
+**/Testing/
+**/imagesTr/
+**/labelsTr/
+**/imagesTs/
+
+# Pretrained models (LARGE)
+pretrained_models/
+*.pth
+*.pt
+*.pkl
+*.model
+*.ckpt
+checkpoints/
+models/
+
+# Results and outputs
+results/
+outputs/
+runs/
+logs/
+*.png
+*.jpg
+*.jpeg
+*.pdf
+*_scores.txt
+*_segmentation.*
+
+# Zip files and compressed data
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+conda-meta/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# PyTorch
+*.pth.tar
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+*.out
+*.err
+
+# Backup files
+*.backup
+*.bak
+*.orig
+
+# MONAI cache
+.monai/
+cache/
+cached_data/
+
+# TensorBoard
+events.out.tfevents.*
+tensorboard/
+
+# Weights & Biases
+wandb/
+
+# MLflow
+mlruns/
+
+# CUDA cache
+.nv/
+
+# Large test files
+test_data/
+sample_data/
+demo_data/
+
+# Config files with sensitive info (if any)
+config.ini
+secrets.json
+.env
+
+# Downloaded files
+downloads/
+temp/
