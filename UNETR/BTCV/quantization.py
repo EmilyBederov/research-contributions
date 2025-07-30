@@ -13,6 +13,7 @@ from networks.unetr import UNETR
 from utils.data_utils import get_loader
 from monai.inferers import sliding_window_inference
 
+
 class UNETRQuantizer:
     def __init__(self, pretrained_path="./pretrained_models/UNETR_model_best_acc.pth"):
         self.pretrained_path = pretrained_path
@@ -42,7 +43,7 @@ class UNETRQuantizer:
         model.load_state_dict(model_dict, strict=False)
         model.eval()
         
-        print(" Original model loaded successfully!")
+        print("✅ Original model loaded successfully!")
         return model
     
     def get_model_size(self, model, name="model"):
@@ -78,7 +79,7 @@ class UNETRQuantizer:
     
     def fp16_quantization(self, model):
         """Apply FP16 quantization"""
-        print(" Applying FP16 Quantization...")
+        print("🎯 Applying FP16 Quantization...")
         
         # Convert model to half precision
         model_fp16 = model.cpu().half()
@@ -105,12 +106,12 @@ class UNETRQuantizer:
             int8_size = self.get_model_size(int8_model, "int8")
             results['int8'] = {'size_mb': int8_size, 'model': int8_model, 'path': int8_path}
             
-            print(f" INT8 model saved: {int8_path}")
-            print(f" INT8 model size: {int8_size:.2f} MB")
-            print(f" INT8 compression: {original_size/int8_size:.2f}x smaller")
+            print(f"✅ INT8 model saved: {int8_path}")
+            print(f"📏 INT8 model size: {int8_size:.2f} MB")
+            print(f"🗜️ INT8 compression: {original_size/int8_size:.2f}x smaller")
             
         except Exception as e:
-            print(f" INT8 quantization failed: {e}")
+            print(f"❌ INT8 quantization failed: {e}")
         
         # FP16 Quantization
         try:
@@ -120,12 +121,12 @@ class UNETRQuantizer:
             fp16_size = self.get_model_size(fp16_model, "fp16")
             results['fp16'] = {'size_mb': fp16_size, 'model': fp16_model, 'path': fp16_path}
             
-            print(f" FP16 model saved: {fp16_path}")
-            print(f" FP16 model size: {fp16_size:.2f} MB")
-            print(f" FP16 compression: {original_size/fp16_size:.2f}x smaller")
+            print(f"✅ FP16 model saved: {fp16_path}")
+            print(f"📏 FP16 model size: {fp16_size:.2f} MB")
+            print(f"🗜️ FP16 compression: {original_size/fp16_size:.2f}x smaller")
             
         except Exception as e:
-            print(f" FP16 quantization failed: {e}")
+            print(f"❌ FP16 quantization failed: {e}")
         
         return results
     
@@ -171,12 +172,12 @@ class UNETRQuantizer:
                 print(f"   Average: {avg_time:.3f}s")
                 
             except Exception as e:
-                print(f"Benchmark failed: {e}")
+                print(f"   ❌ Benchmark failed: {e}")
         
         # Calculate speedups
         if 'original' in benchmark_results:
             original_time = benchmark_results['original']
-            print(f"\n Performance Summary:")
+            print(f"\n📊 Performance Summary:")
             print(f"{'Model':<12} {'Size (MB)':<12} {'Time (s)':<12} {'Speedup':<12}")
             print("-" * 50)
             
@@ -186,10 +187,64 @@ class UNETRQuantizer:
                     time_val = benchmark_results[model_type]
                     speedup = original_time / time_val if model_type != 'original' else 1.0
                     print(f"{model_type.upper():<12} {size:<12.2f} {time_val:<12.3f} {speedup:<12.2f}x")
+    
+    def create_usage_examples(self):
+        """Create example code for using quantized models"""
+        usage_code = '''# Usage Examples for Quantized UNETR Models
+
+## 1. Loading INT8 Quantized Model
+import torch
+from networks.unetr import UNETR
+
+# Create model architecture
+model = UNETR(
+    in_channels=1, out_channels=14, img_size=(96, 96, 96),
+    feature_size=16, hidden_size=768, mlp_dim=3072,
+    num_heads=12, pos_embed='perceptron', norm_name='instance',
+    conv_block=True, res_block=True, dropout_rate=0.0
+)
+
+# Apply quantization
+quantized_model = torch.quantization.quantize_dynamic(
+    model, {torch.nn.Linear, torch.nn.Conv3d}, dtype=torch.qint8
+)
+
+# Load quantized weights
+quantized_model.load_state_dict(torch.load('./quantized_models/unetr_int8_dynamic.pth'))
+quantized_model.eval()
+
+## 2. Loading FP16 Model
+model_fp16 = UNETR(
+    in_channels=1, out_channels=14, img_size=(96, 96, 96),
+    feature_size=16, hidden_size=768, mlp_dim=3072,
+    num_heads=12, pos_embed='perceptron', norm_name='instance',
+    conv_block=True, res_block=True, dropout_rate=0.0
+)
+model_fp16.load_state_dict(torch.load('./quantized_models/unetr_fp16.pth'))
+model_fp16.half()  # Convert to FP16
+model_fp16.eval()
+
+## 3. Use with test.py (CPU only for INT8)
+python test.py \\
+    --pretrained_dir=./quantized_models/ \\
+    --pretrained_model_name=unetr_int8_dynamic.pth \\
+    --saved_checkpoint=ckpt
+
+## 4. Performance Summary
+- Original: 354 MB
+- INT8: 102 MB (3.47x smaller, CPU only)
+- FP16: 177 MB (2x smaller, needs GPU)
+'''
+        
+        with open('./quantized_models/usage_examples.txt', 'w') as f:
+            f.write(usage_code)
+        
+        print("📋 Usage examples saved to: ./quantized_models/usage_examples.txt")
+
 
 def main():
     """Main quantization workflow"""
-    print(" UNETR Model Quantization")
+    print("🔧 UNETR Model Quantization")
     print("=" * 50)
     
     # Initialize quantizer
@@ -207,9 +262,9 @@ def main():
     # Create usage examples
     quantizer.create_usage_examples()
     
-    print(f"\n Quantization Complete!")
-    print(f" All quantized models saved in: ./quantized_models/")
-    print(f" Check usage_examples.txt for how to use them")
+    print(f"\n🎉 Quantization Complete!")
+    print(f"📂 All quantized models saved in: ./quantized_models/")
+    print(f"📋 Check usage_examples.txt for how to use them")
 
 
 if __name__ == "__main__":
