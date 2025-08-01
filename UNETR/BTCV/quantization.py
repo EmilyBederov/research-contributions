@@ -21,7 +21,7 @@ class UNETRQuantizer:
         
     def load_original_model(self):
         """Load the original pretrained UNETR model"""
-        print("🧠 Loading original UNETR model...")
+        print(" Loading original UNETR model...")
         
         model = UNETR(
             in_channels=1,
@@ -43,7 +43,7 @@ class UNETRQuantizer:
         model.load_state_dict(model_dict, strict=False)
         model.eval()
         
-        print("✅ Original model loaded successfully!")
+        print(" Original model loaded successfully!")
         return model
     
     def get_model_size(self, model, name="model"):
@@ -79,7 +79,7 @@ class UNETRQuantizer:
     
     def fp16_quantization(self, model):
         """Apply FP16 quantization"""
-        print("🎯 Applying FP16 Quantization...")
+        print(" Applying FP16 Quantization...")
         
         # Convert model to half precision
         model_fp16 = model.cpu().half()
@@ -96,7 +96,7 @@ class UNETRQuantizer:
         original_size = self.get_model_size(original_model, "original")
         results['original'] = {'size_mb': original_size, 'model': original_model}
         
-        print(f"📏 Original model size: {original_size:.2f} MB")
+        print(f" Original model size: {original_size:.2f} MB")
         
         # INT8 Dynamic Quantization
         try:
@@ -106,12 +106,12 @@ class UNETRQuantizer:
             int8_size = self.get_model_size(int8_model, "int8")
             results['int8'] = {'size_mb': int8_size, 'model': int8_model, 'path': int8_path}
             
-            print(f"✅ INT8 model saved: {int8_path}")
-            print(f"📏 INT8 model size: {int8_size:.2f} MB")
-            print(f"🗜️ INT8 compression: {original_size/int8_size:.2f}x smaller")
+            print(f" INT8 model saved: {int8_path}")
+            print(f" INT8 model size: {int8_size:.2f} MB")
+            print(f" INT8 compression: {original_size/int8_size:.2f}x smaller")
             
         except Exception as e:
-            print(f"❌ INT8 quantization failed: {e}")
+            print(f" INT8 quantization failed: {e}")
         
         # FP16 Quantization
         try:
@@ -121,72 +121,15 @@ class UNETRQuantizer:
             fp16_size = self.get_model_size(fp16_model, "fp16")
             results['fp16'] = {'size_mb': fp16_size, 'model': fp16_model, 'path': fp16_path}
             
-            print(f"✅ FP16 model saved: {fp16_path}")
-            print(f"📏 FP16 model size: {fp16_size:.2f} MB")
-            print(f"🗜️ FP16 compression: {original_size/fp16_size:.2f}x smaller")
+            print(f" FP16 model saved: {fp16_path}")
+            print(f" FP16 model size: {fp16_size:.2f} MB")
+            print(f" FP16 compression: {original_size/fp16_size:.2f}x smaller")
             
         except Exception as e:
-            print(f"❌ FP16 quantization failed: {e}")
+            print(f" FP16 quantization failed: {e}")
         
         return results
     
-    def benchmark_models(self, results, num_cases=2):
-        """Benchmark original vs quantized models"""
-        print(f"\n🏁 Benchmarking models on {num_cases} test cases...")
-        
-        # Create dummy test data
-        test_input = torch.randn(1, 1, 96, 96, 96)
-        
-        benchmark_results = {}
-        
-        for model_type, info in results.items():
-            if 'model' not in info:
-                continue
-                
-            model = info['model']
-            times = []
-            
-            print(f"⏱️ Testing {model_type.upper()} model...")
-            
-            try:
-                model.eval()
-                with torch.no_grad():
-                    for i in range(num_cases):
-                        start_time = time.time()
-                        
-                        # Simple forward pass (not sliding window for speed)
-                        if model_type == 'fp16':
-                            test_input_half = test_input.half()
-                            _ = model(test_input_half)
-                        else:
-                            _ = model(test_input)
-                        
-                        end_time = time.time()
-                        inference_time = end_time - start_time
-                        times.append(inference_time)
-                        
-                        print(f"   Case {i+1}: {inference_time:.3f}s")
-                
-                avg_time = np.mean(times)
-                benchmark_results[model_type] = avg_time
-                print(f"   Average: {avg_time:.3f}s")
-                
-            except Exception as e:
-                print(f"   ❌ Benchmark failed: {e}")
-        
-        # Calculate speedups
-        if 'original' in benchmark_results:
-            original_time = benchmark_results['original']
-            print(f"\n📊 Performance Summary:")
-            print(f"{'Model':<12} {'Size (MB)':<12} {'Time (s)':<12} {'Speedup':<12}")
-            print("-" * 50)
-            
-            for model_type in ['original', 'fp16', 'int8']:
-                if model_type in results and model_type in benchmark_results:
-                    size = results[model_type]['size_mb']
-                    time_val = benchmark_results[model_type]
-                    speedup = original_time / time_val if model_type != 'original' else 1.0
-                    print(f"{model_type.upper():<12} {size:<12.2f} {time_val:<12.3f} {speedup:<12.2f}x")
     
     def create_usage_examples(self):
         """Create example code for using quantized models"""
@@ -244,7 +187,7 @@ python test.py \\
 
 def main():
     """Main quantization workflow"""
-    print("🔧 UNETR Model Quantization")
+    print(" UNETR Model Quantization")
     print("=" * 50)
     
     # Initialize quantizer
@@ -262,9 +205,9 @@ def main():
     # Create usage examples
     quantizer.create_usage_examples()
     
-    print(f"\n🎉 Quantization Complete!")
-    print(f"📂 All quantized models saved in: ./quantized_models/")
-    print(f"📋 Check usage_examples.txt for how to use them")
+    print(f"\n Quantization Complete!")
+    print(f" All quantized models saved in: ./quantized_models/")
+    print(f" Check usage_examples.txt for how to use them")
 
 
 if __name__ == "__main__":
