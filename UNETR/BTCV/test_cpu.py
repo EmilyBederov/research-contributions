@@ -12,6 +12,7 @@ from networks.unetr import UNETR
 from trainer import dice
 from utils.data_utils import get_loader
 from monai.inferers import sliding_window_inference
+import nibabel as nib
 
 parser = argparse.ArgumentParser(description="UNETR segmentation pipeline with timing")
 parser.add_argument("--pretrained_dir", default="./pretrained_models/", type=str, help="pretrained checkpoint directory")
@@ -46,7 +47,8 @@ parser.add_argument("--RandRotate90d_prob", default=0.2, type=float, help="RandR
 parser.add_argument("--RandScaleIntensityd_prob", default=0.1, type=float, help="RandScaleIntensityd aug probability")
 parser.add_argument("--RandShiftIntensityd_prob", default=0.1, type=float, help="RandShiftIntensityd aug probability")
 parser.add_argument("--pos_embed", default="perceptron", type=str, help="type of position embedding")
-parser.add_argument("--norm_name", default="instance", type=str, help="normalization layer type in decoder")
+parser.add_argument("--save_outputs", action="store_true", help="save segmentation outputs")
+parser.add_argument("--output_dir", default="./outputs", type=str, help="directory to save outputs")
 
 
 def main():
@@ -62,6 +64,11 @@ def main():
     
     print(f"🎯 Device: {device}")
     print(f"📂 Model: {pretrained_pth}")
+    
+    # Create output directory if saving
+    if args.save_outputs:
+        os.makedirs(args.output_dir, exist_ok=True)
+        print(f"💾 Saving outputs to: {args.output_dir}")
     
     # Load model
     if args.saved_checkpoint == "torchscript":
@@ -153,6 +160,24 @@ def main():
             
             mean_dice = np.mean(dice_list_sub)
             dice_scores.append(mean_dice)
+            
+            # Save outputs if requested
+            if args.save_outputs:
+                try:
+                    # Save segmentation as NIfTI
+                    seg_filename = os.path.join(args.output_dir, f"{img_name.replace('.nii.gz', '')}_segmentation.nii.gz")
+                    seg_img = nib.Nifti1Image(val_outputs[0].astype(np.uint8), np.eye(4))
+                    nib.save(seg_img, seg_filename)
+                    
+                    # Save ground truth
+                    gt_filename = os.path.join(args.output_dir, f"{img_name.replace('.nii.gz', '')}_ground_truth.nii.gz")
+                    gt_img = nib.Nifti1Image(val_labels[0].astype(np.uint8), np.eye(4))
+                    nib.save(gt_img, gt_filename)
+                    
+                    print(f"  💾 Saved: {seg_filename}")
+                    
+                except Exception as e:
+                    print(f"  ⚠️ Save error: {e}")
             
             print(f"  Dice: {mean_dice:.4f} | Time: {inference_time:.3f}s")
     
