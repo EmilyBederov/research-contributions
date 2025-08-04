@@ -81,8 +81,22 @@ def main():
             res_block=True,
             dropout_rate=args.dropout_rate,
         )
-        model_dict = torch.load(pretrained_pth, map_location=device)
-        model.load_state_dict(model_dict, strict=False)
+        
+        # Load model weights with error handling
+        try:
+            model_dict = torch.load(pretrained_pth, map_location=device)
+            model.load_state_dict(model_dict, strict=False)
+            print("✅ Model loaded successfully")
+        except Exception as e:
+            print(f"⚠️ Model loading warning: {e}")
+            try:
+                # Try loading with CPU mapping
+                model_dict = torch.load(pretrained_pth, map_location='cpu')
+                model.load_state_dict(model_dict, strict=False)
+                print("✅ Model loaded with CPU mapping")
+            except Exception as e2:
+                print(f"❌ Failed to load model: {e2}")
+                return
     
     model.eval()
     model.to(device)
@@ -100,7 +114,12 @@ def main():
             val_inputs = batch["image"].to(device)
             val_labels = batch["label"].to(device)
             
-            img_name = batch["image_meta_dict"]["filename_or_obj"][0].split("/")[-1]
+            # Get image name safely
+            try:
+                img_name = batch["image_meta_dict"]["filename_or_obj"][0].split("/")[-1]
+            except (KeyError, IndexError):
+                img_name = f"case_{i+1:03d}"
+            
             print(f"Processing: {img_name}")
             
             # Time the inference
