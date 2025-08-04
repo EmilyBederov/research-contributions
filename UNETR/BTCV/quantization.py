@@ -56,7 +56,7 @@ class UNETRQuantizer:
     
     def dynamic_quantization_int8(self, model):
         """Apply INT8 dynamic quantization"""
-        print("⚡ Applying INT8 Dynamic Quantization...")
+        print(" Applying INT8 Dynamic Quantization...")
         
         # Create a copy of the model
         model_copy = UNETR(
@@ -182,7 +182,7 @@ python test.py \\
         with open('./quantized_models/usage_examples.txt', 'w') as f:
             f.write(usage_code)
         
-        print("📋 Usage examples saved to: ./quantized_models/usage_examples.txt")
+        print(" Usage examples saved to: ./quantized_models/usage_examples.txt")
 
 
 def main():
