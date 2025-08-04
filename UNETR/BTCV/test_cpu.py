@@ -82,8 +82,8 @@ def main():
             hidden_size=args.hidden_size,
             mlp_dim=args.mlp_dim,
             num_heads=args.num_heads,
-            pos_embed=args.pos_embed,
-            norm_name=args.norm_name,
+            pos_embed="perceptron",  # Fixed value
+            norm_name="instance",    # Fixed value
             conv_block=True,
             res_block=True,
             dropout_rate=args.dropout_rate,
