@@ -200,7 +200,7 @@ def main():
     results = quantizer.save_quantized_models(original_model)
     
     # Benchmark models
-    quantizer.benchmark_models(results)
+    #quantizer.benchmark_models(results)
     
     # Create usage examples
     quantizer.create_usage_examples()
