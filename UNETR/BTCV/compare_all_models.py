@@ -42,18 +42,18 @@ def run_model_test(model_type, data_dir="./dataset", output_base_dir="./comparis
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)  # 1 hour timeout
         
         if result.returncode == 0:
-            print(f"✅ {model_type.upper()} model test completed successfully")
+            print(f" {model_type.upper()} model test completed successfully")
             return True, result.stdout
         else:
-            print(f"❌ {model_type.upper()} model test failed:")
+            print(f" {model_type.upper()} model test failed:")
             print(result.stderr)
             return False, result.stderr
             
     except subprocess.TimeoutExpired:
-        print(f"⏰ {model_type.upper()} model test timed out")
+        print(f" {model_type.upper()} model test timed out")
         return False, "Timeout"
     except Exception as e:
-        print(f"💥 Error running {model_type.upper()} model: {e}")
+        print(f" Error running {model_type.upper()} model: {e}")
         return False, str(e)
 
 
@@ -61,7 +61,7 @@ def create_consolidated_comparisons(output_base_dir):
     """Create consolidated comparison images with all model types"""
     
     print(f"\n{'='*50}")
-    print("🖼️ Creating Consolidated Comparisons")
+    print(" Creating Consolidated Comparisons")
     print(f"{'='*50}")
     
     try:
@@ -83,10 +83,10 @@ def create_consolidated_comparisons(output_base_dir):
                     model_dirs["fp16"] = item_path
         
         if len(model_dirs) < 2:
-            print("⚠️ Need at least 2 model outputs for comparison")
+            print(" Need at least 2 model outputs for comparison")
             return
         
-        print(f"📁 Found {len(model_dirs)} model outputs: {list(model_dirs.keys())}")
+        print(f" Found {len(model_dirs)} model outputs: {list(model_dirs.keys())}")
         
         # Create consolidated comparison directory
         comparison_dir = os.path.join(output_base_dir, "consolidated_comparisons")
@@ -99,10 +99,10 @@ def create_consolidated_comparisons(output_base_dir):
             case_sets.append(set(cases))
         
         common_cases = set.intersection(*case_sets) if case_sets else set()
-        print(f"📊 Found {len(common_cases)} common cases: {sorted(list(common_cases))}")
+        print(f" Found {len(common_cases)} common cases: {sorted(list(common_cases))}")
         
         if not common_cases:
-            print("❌ No common cases found across all models")
+            print(" No common cases found across all models")
             return
         
         # Create colormap
@@ -112,7 +112,7 @@ def create_consolidated_comparisons(output_base_dir):
         
         # Process each common case
         for case_name in sorted(common_cases):
-            print(f"🔍 Processing case: {case_name}")
+            print(f" Processing case: {case_name}")
             
             case_comparison_dir = os.path.join(comparison_dir, case_name)
             os.makedirs(case_comparison_dir, exist_ok=True)
@@ -138,7 +138,7 @@ def create_consolidated_comparisons(output_base_dir):
                         gt_data = gt_img.get_fdata()
             
             if gt_data is None or len(segmentations) < 2:
-                print(f"⚠️ Skipping {case_name}: missing data")
+                print(f" Skipping {case_name}: missing data")
                 continue
             
             # Create comprehensive comparison
@@ -202,12 +202,12 @@ def create_consolidated_comparisons(output_base_dir):
         # Create summary HTML report
         create_html_report(comparison_dir, common_cases, model_dirs.keys())
         
-        print(f"\n✅ Consolidated comparisons saved to: {comparison_dir}")
+        print(f"\n Consolidated comparisons saved to: {comparison_dir}")
         
     except ImportError:
-        print("❌ matplotlib or nibabel not available for creating comparisons")
+        print(" matplotlib or nibabel not available for creating comparisons")
     except Exception as e:
-        print(f"❌ Error creating consolidated comparisons: {e}")
+        print(f" Error creating consolidated comparisons: {e}")
 
 
 def create_html_report(comparison_dir, cases, model_types):

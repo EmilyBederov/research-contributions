@@ -129,61 +129,6 @@ class UNETRQuantizer:
             print(f" FP16 quantization failed: {e}")
         
         return results
-    
-    
-    def create_usage_examples(self):
-        """Create example code for using quantized models"""
-        usage_code = '''# Usage Examples for Quantized UNETR Models
-
-## 1. Loading INT8 Quantized Model
-import torch
-from networks.unetr import UNETR
-
-# Create model architecture
-model = UNETR(
-    in_channels=1, out_channels=14, img_size=(96, 96, 96),
-    feature_size=16, hidden_size=768, mlp_dim=3072,
-    num_heads=12, pos_embed='perceptron', norm_name='instance',
-    conv_block=True, res_block=True, dropout_rate=0.0
-)
-
-# Apply quantization
-quantized_model = torch.quantization.quantize_dynamic(
-    model, {torch.nn.Linear, torch.nn.Conv3d}, dtype=torch.qint8
-)
-
-# Load quantized weights
-quantized_model.load_state_dict(torch.load('./quantized_models/unetr_int8_dynamic.pth'))
-quantized_model.eval()
-
-## 2. Loading FP16 Model
-model_fp16 = UNETR(
-    in_channels=1, out_channels=14, img_size=(96, 96, 96),
-    feature_size=16, hidden_size=768, mlp_dim=3072,
-    num_heads=12, pos_embed='perceptron', norm_name='instance',
-    conv_block=True, res_block=True, dropout_rate=0.0
-)
-model_fp16.load_state_dict(torch.load('./quantized_models/unetr_fp16.pth'))
-model_fp16.half()  # Convert to FP16
-model_fp16.eval()
-
-## 3. Use with test.py (CPU only for INT8)
-python test.py \\
-    --pretrained_dir=./quantized_models/ \\
-    --pretrained_model_name=unetr_int8_dynamic.pth \\
-    --saved_checkpoint=ckpt
-
-## 4. Performance Summary
-- Original: 354 MB
-- INT8: 102 MB (3.47x smaller, CPU only)
-- FP16: 177 MB (2x smaller, needs GPU)
-'''
-        
-        with open('./quantized_models/usage_examples.txt', 'w') as f:
-            f.write(usage_code)
-        
-        print(" Usage examples saved to: ./quantized_models/usage_examples.txt")
-
 
 def main():
     """Main quantization workflow"""
@@ -207,8 +152,6 @@ def main():
     
     print(f"\n Quantization Complete!")
     print(f" All quantized models saved in: ./quantized_models/")
-    print(f" Check usage_examples.txt for how to use them")
-
 
 if __name__ == "__main__":
     main()
