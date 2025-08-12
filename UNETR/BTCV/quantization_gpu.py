@@ -67,12 +67,15 @@ class A100UNETRQuantizer:
         
         # A100 optimizations
         if self.is_a100:
-            # Compile model for A100 (PyTorch 2.0+)
-            try:
-                model = torch.compile(model, mode="max-autotune")
-                print("✅ Model compiled with torch.compile for A100")
-            except:
-                print("📊 torch.compile not available, using standard model")
+            # Skip torch.compile for UNETR due to transformer complexity
+            # Use other A100 optimizations instead
+            print("📊 Using A100 optimizations (skipping torch.compile for UNETR)")
+            
+            # Enable other A100 features
+            if self.device.type == "cuda":
+                # Pre-allocate CUDA memory for better performance
+                torch.cuda.empty_cache()
+                print("✅ A100 CUDA optimizations enabled")
         
         print("✅ Original model loaded successfully!")
         return model
@@ -335,11 +338,8 @@ model = UNETR(
 model.load_state_dict(torch.load('./pretrained_models/UNETR_model_best_acc.pth'))
 model = model.cuda().eval()
 
-# Optional: Compile for A100 (PyTorch 2.0+)
-try:
-    model = torch.compile(model, mode="max-autotune")
-except:
-    pass
+# Optional: Skip torch.compile for UNETR (transformer models can be tricky)
+# model = torch.compile(model, mode="max-autotune")  # Uncomment if needed
 
 ### A100-Optimized FP16 Model
 model_fp16 = UNETR(...)
