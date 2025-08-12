@@ -170,9 +170,9 @@ def main():
     # Create usage guide
     quantizer.create_usage_guide()
     
-    print(f"\n✅ Quantization Complete!")
-    print(f"📁 All models saved in: ./quantized_models/")
-    print(f"🔍 For performance testing, use a separate script")
+    print(f"\n Quantization Complete!")
+    print(f" All models saved in: ./quantized_models/")
+    print(f" For performance testing, use a separate script")
 
 if __name__ == "__main__":
     main()

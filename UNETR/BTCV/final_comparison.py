@@ -95,13 +95,13 @@ def load_model(model_path, model_type="original"):
     model.eval()
     model.to(device)
     
-    # A100 compilation (PyTorch 2.0+)
+    # A100 compilation (skip for UNETR due to transformer complexity)
     if device.type == "cuda" and model_type != "int8":
-        try:
-            model = torch.compile(model, mode="max-autotune")
-            print(f"⚡ Model compiled for A100 with max-autotune")
-        except:
-            print(f"📊 torch.compile not available, using standard model")
+        # UNETR with transformers doesn't compile well, use other optimizations
+        print(f"🚀 Using A100 optimizations (TF32, cuDNN) without torch.compile")
+        
+        # Enable memory optimizations
+        torch.cuda.empty_cache()
     
     print(f"✅ {model_type.upper()} model loaded on {device}")
     return model, device
@@ -825,11 +825,145 @@ def create_performance_analysis(results, output_dir):
     create_performance_plots(summary_stats, output_dir)
 
 def create_overlay_comparisons_from_segmentations(all_segmentations, output_dir, args):
-    """Create overlay comparisons using the segmentations"""
+    """Create overlay comparisons using the segmentations overlaid on original CT"""
     
-    # This is a simplified version - you can expand based on your needs
-    print("📝 Overlay comparison creation completed")
-    print("💡 Use the segmentation data saved in all_segmentations for visualization")
+    print("🖼️ Creating overlay comparisons on original CT scans...")
+    
+    if not all_segmentations:
+        print("❌ No segmentations found for overlay creation")
+        return
+    
+    # Find common cases across all models
+    common_cases = set()
+    first_model = True
+    for model_name, model_segs in all_segmentations.items():
+        if first_model:
+            common_cases = set(model_segs.keys())
+            first_model = False
+        else:
+            common_cases &= set(model_segs.keys())
+    
+    print(f"📊 Found {len(common_cases)} common cases for overlay comparison")
+    
+    if not common_cases:
+        print("❌ No common cases found across all models")
+        return
+    
+    # Create colormap for organs
+    cmap = create_organ_colormap()
+    
+    # Process each common case
+    for case_name in sorted(common_cases):
+        print(f"🔍 Creating overlay for: {case_name}")
+        
+        try:
+            # Load the original CT image for this case
+            # Find the original CT file
+            ct_file = None
+            for pattern in ["./dataset/Training/img/*.nii.gz", "./dataset/Testing/img/*.nii.gz"]:
+                import glob
+                files = glob.glob(pattern)
+                for f in files:
+                    if case_name in os.path.basename(f):
+                        ct_file = f
+                        break
+                if ct_file:
+                    break
+            
+            if not ct_file:
+                print(f"  ⚠️ Could not find original CT for {case_name}")
+                continue
+            
+            # Load original CT
+            ct_img = nib.load(ct_file)
+            ct_data = ct_img.get_fdata()
+            
+            # Normalize CT for display
+            ct_display = np.clip(ct_data, -175, 250)
+            ct_display = (ct_display - ct_display.min()) / (ct_display.max() - ct_display.min() + 1e-8)
+            
+            print(f"  ✅ Loaded original CT: {os.path.basename(ct_file)}")
+            print(f"     CT shape: {ct_data.shape}")
+            
+            # Get segmentations for this case from all models
+            case_segmentations = {}
+            for model_name, model_segs in all_segmentations.items():
+                if case_name in model_segs:
+                    case_segmentations[model_name] = model_segs[case_name]
+                    print(f"     {model_name.upper()} segmentation shape: {model_segs[case_name].shape}")
+            
+            # Create comparison images for different views
+            shape = ct_data.shape
+            slices_info = [
+                ('axial', shape[2] // 2, 2),
+                ('coronal', shape[1] // 2, 1)
+            ]
+            
+            for view_name, slice_idx, axis in slices_info:
+                # Create figure with: Original CT + All model overlays
+                n_models = len(case_segmentations)
+                fig, axes = plt.subplots(1, n_models + 1, figsize=(6*(n_models + 1), 6))
+                if n_models + 1 == 1:
+                    axes = [axes]
+                
+                # Extract CT slice
+                if axis == 0:
+                    ct_slice = ct_display[slice_idx, :, :]
+                elif axis == 1:
+                    ct_slice = ct_display[:, slice_idx, :]
+                else:
+                    ct_slice = ct_display[:, :, slice_idx]
+                
+                # Plot 1: Original CT without overlay
+                axes[0].imshow(ct_slice, cmap='gray', origin='lower')
+                axes[0].set_title('Original CT', fontsize=14, fontweight='bold')
+                axes[0].axis('off')
+                
+                # Plot 2+: Each model's segmentation overlaid on original CT
+                for i, (model_name, seg_data) in enumerate(sorted(case_segmentations.items())):
+                    # Extract segmentation slice
+                    if axis == 0:
+                        seg_slice = seg_data[slice_idx, :, :] if seg_data.shape[2] > slice_idx else seg_data[:, :, min(slice_idx, seg_data.shape[2]-1)]
+                    elif axis == 1:
+                        seg_slice = seg_data[:, slice_idx, :] if seg_data.shape[1] > slice_idx else seg_data[:, min(slice_idx, seg_data.shape[1]-1), :]
+                    else:
+                        seg_slice = seg_data[:, :, slice_idx] if seg_data.shape[2] > slice_idx else seg_data[:, :, min(slice_idx, seg_data.shape[2]-1)]
+                    
+                    # Resize segmentation to match CT if needed
+                    if seg_slice.shape != ct_slice.shape:
+                        from scipy import ndimage
+                        seg_slice = ndimage.zoom(seg_slice, 
+                                               (ct_slice.shape[0]/seg_slice.shape[0], 
+                                                ct_slice.shape[1]/seg_slice.shape[1]), 
+                                               order=0)  # Nearest neighbor for labels
+                    
+                    # Display original CT as background
+                    axes[i+1].imshow(ct_slice, cmap='gray', origin='lower')
+                    
+                    # Overlay segmentation
+                    seg_masked = np.ma.masked_where(seg_slice == 0, seg_slice)
+                    axes[i+1].imshow(seg_masked, cmap=cmap, vmin=0, vmax=13, alpha=0.6, origin='lower')
+                    
+                    axes[i+1].set_title(f'{model_name.upper()} Overlay', fontsize=14, fontweight='bold')
+                    axes[i+1].axis('off')
+                
+                plt.suptitle(f'{case_name} - {view_name.title()} View (Slice {slice_idx})', 
+                            fontsize=16, fontweight='bold')
+                plt.tight_layout()
+                
+                # Save comparison
+                comparison_path = os.path.join(output_dir, f'{case_name}_{view_name}_overlay_comparison.png')
+                plt.savefig(comparison_path, dpi=200, bbox_inches='tight', facecolor='white')
+                plt.close()
+                
+                print(f"  ✅ Saved: {comparison_path}")
+        
+        except Exception as e:
+            print(f"  ❌ Error creating overlay for {case_name}: {e}")
+            continue
+    
+    print("✅ Overlay comparison creation completed!")
+    print("🖼️ Each image shows: [Original CT] [Model1+CT] [Model2+CT] [Model3+CT]")
 
 def create_performance_plots(summary_stats, output_dir):
     """Create performance visualization plots including HD95"""
