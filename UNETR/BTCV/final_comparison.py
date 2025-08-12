@@ -90,34 +90,115 @@ def preprocess_ct_image(ct_path):
     ct_img = nib.load(ct_path)
     ct_data = ct_img.get_fdata()
     
-    # Apply MONAI transforms (same as training)
-    transforms_list = transforms.Compose([
-        transforms.EnsureChannelFirst(),
-        transforms.Orientation(axcodes="RAS"),
-        transforms.Spacing(pixdim=(1.5, 1.5, 2.0), mode="bilinear"),
-        transforms.ScaleIntensityRange(a_min=-175.0, a_max=250.0, b_min=0.0, b_max=1.0, clip=True),
-        transforms.CropForeground(allow_smaller=True),
-        transforms.ToTensor()
-    ])
+    print(f"    📐 Original shape: {ct_data.shape}")
     
-    # Apply transforms
-    ct_tensor = transforms_list(ct_data)
-    ct_tensor = ct_tensor.unsqueeze(0)  # Add batch dimension
+    # Ensure we have the right dimensions (H, W, D)
+    if ct_data.ndim == 4:
+        ct_data = ct_data.squeeze()  # Remove extra dimensions
     
-    return ct_tensor, ct_data, ct_img.affine
+    # Add channel dimension if needed (C, H, W, D)
+    if ct_data.ndim == 3:
+        ct_data = ct_data[None, ...]  # Add channel dimension
+    
+    print(f"    📐 After channel fix: {ct_data.shape}")
+    
+    # Apply preprocessing transforms one by one with error handling
+    try:
+        # 1. Orientation
+        orientation_transform = transforms.Orientation(axcodes="RAS")
+        ct_data = orientation_transform(ct_data)
+        print(f"    ✅ Orientation applied: {ct_data.shape}")
+        
+        # 2. Spacing - be more careful with this
+        spacing_transform = transforms.Spacing(pixdim=(1.5, 1.5, 2.0), mode="bilinear")
+        ct_data = spacing_transform(ct_data)
+        print(f"    ✅ Spacing applied: {ct_data.shape}")
+        
+        # 3. Intensity scaling
+        intensity_transform = transforms.ScaleIntensityRange(
+            a_min=-175.0, a_max=250.0, b_min=0.0, b_max=1.0, clip=True
+        )
+        ct_data = intensity_transform(ct_data)
+        print(f"    ✅ Intensity scaling applied")
+        
+        # 4. Crop foreground - skip if it causes issues
+        try:
+            crop_transform = transforms.CropForeground(allow_smaller=True)
+            ct_data = crop_transform(ct_data)
+            print(f"    ✅ Foreground cropping applied: {ct_data.shape}")
+        except:
+            print(f"    ⚠️ Skipping foreground cropping")
+        
+        # 5. Convert to tensor
+        if not isinstance(ct_data, torch.Tensor):
+            ct_data = torch.from_numpy(ct_data).float()
+        
+        # Add batch dimension
+        ct_tensor = ct_data.unsqueeze(0)  # (1, C, H, W, D)
+        
+        print(f"    ✅ Final tensor shape: {ct_tensor.shape}")
+        
+        return ct_tensor, ct_img.get_fdata(), ct_img.affine
+        
+    except Exception as e:
+        print(f"    ❌ Preprocessing error: {e}")
+        print(f"    🔄 Falling back to minimal preprocessing...")
+        
+        # Fallback: minimal preprocessing
+        ct_data = ct_img.get_fdata()
+        
+        # Ensure 4D with channel dimension
+        if ct_data.ndim == 3:
+            ct_data = ct_data[None, ...]  # (C, H, W, D)
+        
+        # Basic intensity clipping
+        ct_data = np.clip(ct_data, -175, 250)
+        ct_data = (ct_data - (-175)) / (250 - (-175))  # Normalize to [0,1]
+        
+        # Convert to tensor
+        ct_tensor = torch.from_numpy(ct_data).float().unsqueeze(0)  # (1, C, H, W, D)
+        
+        print(f"    ✅ Fallback preprocessing: {ct_tensor.shape}")
+        
+        return ct_tensor, ct_img.get_fdata(), ct_img.affine
 
 def load_ground_truth(ct_path):
     """Load corresponding ground truth segmentation"""
     
-    # Convert image path to label path
-    label_path = ct_path.replace('/img/', '/label/').replace('img', 'label')
+    # Try multiple possible label paths
+    possible_label_paths = [
+        ct_path.replace('/img/', '/label/').replace('img', 'label'),  # Standard pattern
+        ct_path.replace('Training/img', 'Training/label').replace('img', 'label'),
+        ct_path.replace('Testing/img', 'Testing/label').replace('img', 'label'),
+    ]
     
-    if os.path.exists(label_path):
-        label_img = nib.load(label_path)
-        return label_img.get_fdata()
-    else:
-        print(f"⚠️ Ground truth not found: {label_path}")
-        return None
+    # Also try with different extensions
+    base_name = os.path.basename(ct_path).replace('.nii.gz', '').replace('img', 'label')
+    label_dirs = [
+        './dataset/Training/label/',
+        './dataset/Testing/label/',
+        os.path.dirname(ct_path).replace('img', 'label') + '/'
+    ]
+    
+    for label_dir in label_dirs:
+        possible_label_paths.append(os.path.join(label_dir, base_name + '.nii.gz'))
+    
+    for label_path in possible_label_paths:
+        if os.path.exists(label_path):
+            try:
+                label_img = nib.load(label_path)
+                print(f"    ✅ Found ground truth: {label_path}")
+                return label_img.get_fdata()
+            except Exception as e:
+                print(f"    ⚠️ Error loading {label_path}: {e}")
+                continue
+    
+    print(f"    ⚠️ Ground truth not found for: {os.path.basename(ct_path)}")
+    print(f"    🔍 Tried paths:")
+    for path in possible_label_paths[:3]:  # Show first few
+        print(f"      - {path}")
+    
+    return None
 
 def run_segmentation_with_timing(model, ct_tensor, device, model_type, overlap=0.5):
     """Run segmentation inference and measure timing"""
