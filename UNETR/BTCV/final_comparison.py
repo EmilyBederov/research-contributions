@@ -20,6 +20,8 @@ from monai.metrics import HausdorffDistanceMetric
 from scipy.spatial.distance import directed_hausdorff
 from scipy import ndimage
 import glob
+from utils.data_utils import get_loader
+
 
 def create_organ_colormap():
     """Create colormap for 14 organs with transparency for overlay"""
