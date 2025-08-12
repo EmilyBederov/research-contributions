@@ -1,48 +1,20 @@
 #!/usr/bin/env python3
 """
-A100-Optimized UNETR Model Quantization Script
-Leverages A100's Tensor Cores and advanced quantization features
+Clean UNETR Model Quantization Script
+ONLY quantizes models - no benchmarking or testing
 """
 
 import torch
-import torch.quantization as quantization
 import os
-import time
-import numpy as np
 from networks.unetr import UNETR
-from utils.data_utils import get_loader
-from monai.inferers import sliding_window_inference
 
-class A100UNETRQuantizer:
+class UNETRQuantizer:
     def __init__(self, pretrained_path="./pretrained_models/UNETR_model_best_acc.pth"):
         self.pretrained_path = pretrained_path
         
-        # Check A100 availability
-        if torch.cuda.is_available():
-            gpu_name = torch.cuda.get_device_name(0)
-            print(f"🚀 GPU Detected: {gpu_name}")
-            
-            # Check for A100 specific features
-            if "A100" in gpu_name:
-                print("✅ A100 detected! Enabling Tensor Core optimizations")
-                self.is_a100 = True
-                # Enable optimized settings for A100
-                torch.backends.cudnn.benchmark = True
-                torch.backends.cuda.matmul.allow_tf32 = True  # A100 TensorFloat-32
-                torch.backends.cudnn.allow_tf32 = True
-            else:
-                print(f"📊 GPU: {gpu_name} (not A100, but will optimize)")
-                self.is_a100 = False
-            
-            self.device = torch.device("cuda")
-        else:
-            print("⚠️ No CUDA available, falling back to CPU")
-            self.device = torch.device("cpu")
-            self.is_a100 = False
-    
     def load_original_model(self):
-        """Load the original pretrained UNETR model with A100 optimizations"""
-        print("🔧 Loading original UNETR model with A100 optimizations...")
+        """Load the original pretrained UNETR model"""
+        print("🔧 Loading original UNETR model...")
         
         model = UNETR(
             in_channels=1,
@@ -60,22 +32,9 @@ class A100UNETRQuantizer:
         )
         
         # Load pretrained weights
-        model_dict = torch.load(self.pretrained_path, map_location=self.device)
+        model_dict = torch.load(self.pretrained_path, map_location='cpu')
         model.load_state_dict(model_dict, strict=False)
         model.eval()
-        model.to(self.device)
-        
-        # A100 optimizations
-        if self.is_a100:
-            # Skip torch.compile for UNETR due to transformer complexity
-            # Use other A100 optimizations instead
-            print("📊 Using A100 optimizations (skipping torch.compile for UNETR)")
-            
-            # Enable other A100 features
-            if self.device.type == "cuda":
-                # Pre-allocate CUDA memory for better performance
-                torch.cuda.empty_cache()
-                print("✅ A100 CUDA optimizations enabled")
         
         print("✅ Original model loaded successfully!")
         return model
@@ -88,316 +47,132 @@ class A100UNETRQuantizer:
         os.remove(temp_path)
         return size_mb
     
-    def advanced_int8_quantization(self, model):
-        """Apply advanced INT8 quantization optimized for A100"""
-        print("🔧 Applying Advanced INT8 Quantization for A100...")
+    def create_int8_model(self, original_model):
+        """Apply INT8 dynamic quantization"""
+        print("🔧 Applying INT8 quantization...")
         
-        # For A100, INT8 quantization has some limitations with complex models
-        print("📊 Using CPU-optimized INT8 quantization (A100 INT8 support limited)")
-        
-        # Create a copy for quantization on CPU
+        # Create a copy of the model
         model_copy = UNETR(
             in_channels=1, out_channels=14, img_size=(96, 96, 96),
             feature_size=16, hidden_size=768, mlp_dim=3072,
             num_heads=12, pos_embed='perceptron', norm_name='instance',
             conv_block=True, res_block=True, dropout_rate=0.0
         )
-        model_copy.load_state_dict(model.state_dict())
-        model_copy.eval().cpu()  # Force CPU for INT8
+        model_copy.load_state_dict(original_model.state_dict())
+        model_copy.eval()
         
-        try:
-            # Apply dynamic quantization on CPU
-            quantized_model = torch.quantization.quantize_dynamic(
-                model_copy,
-                {torch.nn.Linear, torch.nn.Conv3d},  # Simplified layer types
-                dtype=torch.qint8
-            )
-            print("✅ CPU-optimized INT8 quantization applied")
-            
-            return quantized_model
-            
-        except Exception as e:
-            print(f"⚠️ INT8 quantization failed: {e}")
-            print("🔄 Creating fallback INT8 model...")
-            
-            # Fallback: return CPU model (still memory efficient)
-            return model_copy
+        # Apply dynamic quantization
+        quantized_model = torch.quantization.quantize_dynamic(
+            model_copy,
+            {torch.nn.Linear, torch.nn.Conv3d},
+            dtype=torch.qint8
+        )
+        
+        print("✅ INT8 quantization completed")
+        return quantized_model
     
-    def a100_optimized_fp16(self, model):
-        """Apply FP16 quantization optimized for A100 Tensor Cores"""
-        print("🚀 Applying A100-optimized FP16 with Tensor Core support...")
+    def create_fp16_model(self, original_model):
+        """Apply FP16 quantization"""
+        print("🔧 Applying FP16 quantization...")
         
-        if self.device.type == "cuda":
-            # A100 supports native FP16 with Tensor Cores
-            model_fp16 = model.half()
-            
-            # Enable Automatic Mixed Precision for A100
-            print("✅ Enabled AMP (Automatic Mixed Precision) for A100")
-            
-            return model_fp16
-        else:
-            # CPU FP16 (limited support)
-            print("⚠️ FP16 on CPU has limited support")
-            model_fp16 = model.half()
-            return model_fp16
+        # Convert model to half precision
+        model_fp16 = original_model.cpu().half()
+        
+        print("✅ FP16 quantization completed")
+        return model_fp16
     
-    def benchmark_on_a100(self, model, model_type, sample_input=None):
-        """Benchmark model performance on A100"""
-        print(f"🏃‍♂️ Benchmarking {model_type.upper()} on A100...")
-        
-        model.eval()
-        
-        # Create sample input if not provided
-        if sample_input is None:
-            sample_input = torch.randn(1, 1, 96, 96, 96)
-        
-        # Move to appropriate device
-        if model_type == "int8":
-            # INT8 models typically run on CPU
-            sample_input = sample_input.cpu()
-            device = torch.device("cpu")
-        else:
-            sample_input = sample_input.to(self.device)
-            device = self.device
-            if model_type == "fp16":
-                sample_input = sample_input.half()
-        
-        # Warmup runs
-        print(f"   🔥 Warming up...")
-        with torch.no_grad():
-            for _ in range(5):
-                _ = model(sample_input)
-        
-        if device.type == "cuda":
-            torch.cuda.synchronize()
-        
-        # Benchmark runs
-        times = []
-        memory_usage = []
-        
-        print(f"   ⏱️ Running benchmark (10 iterations)...")
-        
-        with torch.no_grad():
-            for i in range(10):
-                # Memory before
-                if device.type == "cuda":
-                    memory_before = torch.cuda.memory_allocated() / 1024**2
-                
-                # Time inference
-                if device.type == "cuda":
-                    torch.cuda.synchronize()
-                
-                start = time.perf_counter()
-                output = model(sample_input)
-                
-                if device.type == "cuda":
-                    torch.cuda.synchronize()
-                
-                end = time.perf_counter()
-                times.append(end - start)
-                
-                # Memory after
-                if device.type == "cuda":
-                    memory_after = torch.cuda.memory_allocated() / 1024**2
-                    memory_usage.append(memory_after - memory_before)
-        
-        # Calculate statistics
-        avg_time = np.mean(times)
-        std_time = np.std(times)
-        fps = 1.0 / avg_time
-        avg_memory = np.mean(memory_usage) if memory_usage else 0
-        
-        print(f"   📊 Results:")
-        print(f"      ⏱️ Avg time: {avg_time:.3f}s ± {std_time:.3f}s")
-        print(f"      🚀 FPS: {fps:.2f}")
-        print(f"      💾 Memory: {avg_memory:.1f} MB")
-        print(f"      🎯 Device: {device}")
-        
-        return {
-            'avg_time': avg_time,
-            'std_time': std_time,
-            'fps': fps,
-            'memory_mb': avg_memory,
-            'device': str(device)
-        }
-    
-    def save_quantized_models_a100(self, original_model):
-        """Save quantized models with A100 optimizations"""
+    def save_all_models(self, original_model):
+        """Save original and quantized models"""
         os.makedirs("./quantized_models", exist_ok=True)
         
-        results = {}
+        print("\n📊 Model Sizes:")
         
-        # Get original size
+        # Original model size
         original_size = self.get_model_size(original_model, "original")
-        results['original'] = {'size_mb': original_size, 'model': original_model}
+        print(f"  Original: {original_size:.2f} MB")
         
-        print(f"📊 Original model size: {original_size:.2f} MB")
-        
-        # Benchmark original model
-        print(f"\n🏃‍♂️ Benchmarking Original Model:")
-        original_benchmark = self.benchmark_on_a100(original_model, "original")
-        results['original']['benchmark'] = original_benchmark
-        
-        # Advanced INT8 Quantization
+        # Create and save INT8 model
         try:
-            print(f"\n🔧 Creating Advanced INT8 Model...")
-            int8_model = self.advanced_int8_quantization(original_model)
-            int8_path = "./quantized_models/unetr_int8_a100_optimized.pth"
+            int8_model = self.create_int8_model(original_model)
+            int8_path = "./quantized_models/unetr_int8_quantized.pth"
             torch.save(int8_model.state_dict(), int8_path)
             int8_size = self.get_model_size(int8_model, "int8")
             
-            # Benchmark INT8 model
-            int8_benchmark = self.benchmark_on_a100(int8_model, "int8")
-            
-            results['int8'] = {
-                'size_mb': int8_size, 
-                'model': int8_model, 
-                'path': int8_path,
-                'benchmark': int8_benchmark
-            }
-            
-            print(f"✅ INT8 model saved: {int8_path}")
-            print(f"   📊 Size: {int8_size:.2f} MB ({original_size/int8_size:.2f}x smaller)")
+            print(f"  INT8:     {int8_size:.2f} MB ({original_size/int8_size:.1f}x smaller)")
+            print(f"  📁 Saved: {int8_path}")
             
         except Exception as e:
-            print(f"❌ INT8 quantization failed: {e}")
+            print(f"  ❌ INT8 failed: {e}")
         
-        # A100-optimized FP16
+        # Create and save FP16 model
         try:
-            print(f"\n🚀 Creating A100-optimized FP16 Model...")
-            fp16_model = self.a100_optimized_fp16(original_model)
-            fp16_path = "./quantized_models/unetr_fp16_a100_optimized.pth"
+            fp16_model = self.create_fp16_model(original_model)
+            fp16_path = "./quantized_models/unetr_fp16_quantized.pth"
             torch.save(fp16_model.state_dict(), fp16_path)
             fp16_size = self.get_model_size(fp16_model, "fp16")
             
-            # Benchmark FP16 model
-            fp16_benchmark = self.benchmark_on_a100(fp16_model, "fp16")
-            
-            results['fp16'] = {
-                'size_mb': fp16_size, 
-                'model': fp16_model, 
-                'path': fp16_path,
-                'benchmark': fp16_benchmark
-            }
-            
-            print(f"✅ FP16 model saved: {fp16_path}")
-            print(f"   📊 Size: {fp16_size:.2f} MB ({original_size/fp16_size:.2f}x smaller)")
+            print(f"  FP16:     {fp16_size:.2f} MB ({original_size/fp16_size:.1f}x smaller)")
+            print(f"  📁 Saved: {fp16_path}")
             
         except Exception as e:
-            print(f"❌ FP16 quantization failed: {e}")
-        
-        return results
+            print(f"  ❌ FP16 failed: {e}")
     
-    def create_a100_usage_examples(self):
-        """Create usage examples optimized for A100"""
-        usage_code = '''# A100-Optimized UNETR Usage Examples
+    def create_usage_guide(self):
+        """Create simple usage guide"""
+        usage_guide = '''# UNETR Quantized Models Usage
 
-## 1. Loading A100-Optimized Models
-
-### Original Model (A100 + Tensor Cores)
-import torch
+## Load Original Model
 from networks.unetr import UNETR
-
-# Enable A100 optimizations
-torch.backends.cuda.matmul.allow_tf32 = True
-torch.backends.cudnn.allow_tf32 = True
-
-model = UNETR(
-    in_channels=1, out_channels=14, img_size=(96, 96, 96),
-    feature_size=16, hidden_size=768, mlp_dim=3072,
-    num_heads=12, pos_embed='perceptron', norm_name='instance',
-    conv_block=True, res_block=True, dropout_rate=0.0
-)
-
+model = UNETR(in_channels=1, out_channels=14, img_size=(96, 96, 96), ...)
 model.load_state_dict(torch.load('./pretrained_models/UNETR_model_best_acc.pth'))
-model = model.cuda().eval()
 
-# Optional: Skip torch.compile for UNETR (transformer models can be tricky)
-# model = torch.compile(model, mode="max-autotune")  # Uncomment if needed
-
-### A100-Optimized FP16 Model
-model_fp16 = UNETR(...)
-model_fp16.load_state_dict(torch.load('./quantized_models/unetr_fp16_a100_optimized.pth'))
-model_fp16 = model_fp16.cuda().half().eval()
-
-# Use with AMP for maximum A100 performance
-from torch.cuda.amp import autocast
-with autocast():
-    output = model_fp16(input_tensor.half())
-
-### INT8 Model (CPU optimized)
+## Load INT8 Model (CPU)
 model_int8 = UNETR(...)
-model_int8 = torch.quantization.quantize_dynamic(
-    model_int8, {torch.nn.Linear, torch.nn.Conv3d}, dtype=torch.qint8
-)
-model_int8.load_state_dict(torch.load('./quantized_models/unetr_int8_a100_optimized.pth'))
+model_int8 = torch.quantization.quantize_dynamic(model_int8, {torch.nn.Linear, torch.nn.Conv3d}, dtype=torch.qint8)
+model_int8.load_state_dict(torch.load('./quantized_models/unetr_int8_quantized.pth'))
 
-## 2. A100 Performance Optimizations
+## Load FP16 Model (GPU)
+model_fp16 = UNETR(...)
+model_fp16.load_state_dict(torch.load('./quantized_models/unetr_fp16_quantized.pth'))
+model_fp16 = model_fp16.half().cuda()
 
-### Enable all A100 features
-torch.backends.cudnn.benchmark = True  # Optimize for fixed input sizes
-torch.backends.cuda.matmul.allow_tf32 = True  # Use TensorFloat-32
-torch.backends.cudnn.allow_tf32 = True
-
-### Use larger batch sizes on A100 (80GB memory)
-batch_size = 8  # Can often go higher with A100's memory
-
-### Optimal sliding window for A100
-from monai.inferers import sliding_window_inference
-
-outputs = sliding_window_inference(
-    inputs, 
-    roi_size=(96, 96, 96), 
-    sw_batch_size=8,  # Higher batch size for A100
-    predictor=model,
-    overlap=0.5,
-    mode="gaussian"  # Better quality
-)
-
-## 3. Expected A100 Performance
-# Original Model: ~0.8-1.2s per case
-# FP16 Model: ~0.4-0.8s per case (2x faster)
-# INT8 Model: ~2-4s per case (CPU, but 3.5x smaller)
-
-## 4. Memory Usage on A100
-# Original: ~8-12GB VRAM
-# FP16: ~4-6GB VRAM (perfect for A100)
-# INT8: CPU only, minimal VRAM
+## Model Sizes
+- Original: ~354 MB
+- INT8: ~102 MB (3.5x smaller)
+- FP16: ~177 MB (2x smaller)
 '''
         
-        os.makedirs("./quantized_models", exist_ok=True)
-        with open('./quantized_models/a100_usage_examples.txt', 'w') as f:
-            f.write(usage_code)
+        with open('./quantized_models/usage_guide.txt', 'w') as f:
+            f.write(usage_guide)
         
-        print("📋 A100 usage examples saved to: ./quantized_models/a100_usage_examples.txt")
+        print("📋 Usage guide saved: ./quantized_models/usage_guide.txt")
 
 def main():
-    """Main A100-optimized quantization workflow"""
-    print("🚀 A100-Optimized UNETR Model Quantization")
-    print("=" * 60)
+    """Main quantization workflow - ONLY quantization"""
+    print("🔧 UNETR Model Quantization")
+    print("=" * 40)
     
-    # Initialize A100 quantizer
-    quantizer = A100UNETRQuantizer()
+    # Check if original model exists
+    original_path = "./pretrained_models/UNETR_model_best_acc.pth"
+    if not os.path.exists(original_path):
+        print(f"❌ Original model not found: {original_path}")
+        return
     
-    # Load original model with A100 optimizations
+    # Initialize quantizer
+    quantizer = UNETRQuantizer(original_path)
+    
+    # Load original model
     original_model = quantizer.load_original_model()
     
-    # Quantize and benchmark models
-    results = quantizer.save_quantized_models_a100(original_model)
+    # Quantize and save all models
+    quantizer.save_all_models(original_model)
     
-    # Create A100 usage examples
-    quantizer.create_a100_usage_examples()
+    # Create usage guide
+    quantizer.create_usage_guide()
     
-    # Print final summary
-    print(f"\n🎉 A100 Quantization Complete!")
-    print(f"📁 All optimized models saved in: ./quantized_models/")
-    print(f"\n📊 Performance Summary:")
-    
-    for model_type, data in results.items():
-        if 'benchmark' in data:
-            bench = data['benchmark']
-            size = data['size_mb']
-            print(f"   {model_type.upper():>8}: {bench['fps']:>6.2f} FPS | {size:>6.1f} MB | {bench['device']}")
+    print(f"\n✅ Quantization Complete!")
+    print(f"📁 All models saved in: ./quantized_models/")
+    print(f"🔍 For performance testing, use a separate script")
 
 if __name__ == "__main__":
     main()
