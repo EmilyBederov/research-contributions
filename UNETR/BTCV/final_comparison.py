@@ -14,14 +14,13 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
 from networks.unetr import UNETR
 from trainer import dice
+from utils.data_utils import get_loader  # Import the data loader
 from monai.inferers import sliding_window_inference
 from monai import transforms
 from monai.metrics import HausdorffDistanceMetric
 from scipy.spatial.distance import directed_hausdorff
 from scipy import ndimage
 import glob
-from utils.data_utils import get_loader
-
 
 def create_organ_colormap():
     """Create colormap for 14 organs with transparency for overlay"""
@@ -44,9 +43,21 @@ def create_organ_colormap():
     return ListedColormap(colors)
 
 def load_model(model_path, model_type="original"):
-    """Load and return UNETR model"""
+    """Load and return A100-optimized UNETR model"""
     
-    print(f"🔧 Loading {model_type.upper()} model...")
+    print(f"🚀 Loading {model_type.upper()} model with A100 optimizations...")
+    
+    # A100 optimizations
+    if torch.cuda.is_available():
+        gpu_name = torch.cuda.get_device_name(0)
+        if "A100" in gpu_name:
+            print(f"✅ A100 detected: {gpu_name}")
+            # Enable A100 optimizations
+            torch.backends.cudnn.benchmark = True
+            torch.backends.cuda.matmul.allow_tf32 = True  # TensorFloat-32
+            torch.backends.cudnn.allow_tf32 = True
+        else:
+            print(f"📊 GPU: {gpu_name}")
     
     # Create model architecture
     model = UNETR(
@@ -68,19 +79,29 @@ def load_model(model_path, model_type="original"):
     model_dict = torch.load(model_path, map_location='cpu')
     model.load_state_dict(model_dict, strict=False)
     
-    # Apply quantization if needed
+    # Apply quantization and device placement
     if model_type == "int8":
         model = torch.quantization.quantize_dynamic(
             model, {torch.nn.Linear, torch.nn.Conv3d}, dtype=torch.qint8
         )
-        device = torch.device("cpu")  # INT8 runs on CPU
+        device = torch.device("cpu")  # INT8 typically runs on CPU
+        print(f"🔧 INT8 quantization applied, using CPU")
     else:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         if model_type == "fp16" and device.type == "cuda":
             model = model.half()
+            print(f"🚀 FP16 model optimized for A100 Tensor Cores")
     
     model.eval()
     model.to(device)
+    
+    # A100 compilation (PyTorch 2.0+)
+    if device.type == "cuda" and model_type != "int8":
+        try:
+            model = torch.compile(model, mode="max-autotune")
+            print(f"⚡ Model compiled for A100 with max-autotune")
+        except:
+            print(f"📊 torch.compile not available, using standard model")
     
     print(f"✅ {model_type.upper()} model loaded on {device}")
     return model, device
@@ -661,10 +682,26 @@ def main():
                     
                     start_time = time.perf_counter()
                     
-                    # Run inference (same parameters as original)
-                    val_outputs = sliding_window_inference(
-                        val_inputs, (96, 96, 96), 4, model, overlap=0.5
-                    )
+                    # Run inference with A100 optimizations
+                    if device.type == "cuda":
+                        torch.cuda.synchronize()
+                    
+                    start_time = time.perf_counter()
+                    
+                    # Use A100-optimized sliding window parameters
+                    if model_type == "fp16" and device.type == "cuda":
+                        # Use AMP for A100
+                        from torch.cuda.amp import autocast
+                        with autocast():
+                            val_outputs = sliding_window_inference(
+                                val_inputs, (96, 96, 96), 8, model, overlap=0.5, mode="gaussian"
+                            )
+                    else:
+                        # Standard inference with A100 optimizations
+                        sw_batch_size = 8 if device.type == "cuda" else 4  # Larger batch for A100
+                        val_outputs = sliding_window_inference(
+                            val_inputs, (96, 96, 96), sw_batch_size, model, overlap=0.5
+                        )
                     
                     if device.type == "cuda":
                         torch.cuda.synchronize()
