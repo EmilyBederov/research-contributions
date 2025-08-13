@@ -1,0 +1,4 @@
+Model Type,Inference Time (s),FPS,Mean Dice Score,Mean HD95 (mm),Model Size (MB),Device,Size Reduction,Speed Improvement
+ORIGINAL,2.340,0.427,0.8234,12.45,354,CPU,1.0,1.0
+INT8,1.892,0.529,0.8198,13.21,102,CPU,3.5,1.24
+FP16,1.456,0.687,0.8221,12.78,177,CPU,2.0,1.61
